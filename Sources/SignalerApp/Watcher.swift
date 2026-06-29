@@ -5,11 +5,14 @@ import SignalerCore
 /// whenever it changes. Polling (rather than FSEvents) is used deliberately: it
 /// is simple, robust against atomic-rename quirks, and also drives periodic GC.
 /// The update rate is well within the "glanceable, ~1s" requirement.
+///
+/// We intentionally do NOT auto-clear a "working" session on a timer: Claude Code
+/// gives no signal during a long-running tool, so a timer can't tell "still
+/// working" from "interrupted" and would falsely turn the dot green mid-work.
+/// A session stays working until Stop (→done), a new prompt, or the stale GC.
 final class Watcher {
     private let store = SessionStore()
-    // Reports (sessions, staleIds): staleIds are sessions shown as done only
-    // because their work went quiet (interrupt), so the chime is suppressed.
-    private let onChange: ([(id: String, session: Session)], Set<String>) -> Void
+    private let onChange: ([(id: String, session: Session)]) -> Void
     private var timer: Timer?
     private var lastSignature: String?
     private var tick = 0
@@ -17,38 +20,13 @@ final class Watcher {
     private let interval: TimeInterval = 0.4
     private let gcEveryNTicks = 150  // ~ every 60s
 
-    /// Seconds of transcript silence before a stuck "working" session is shown
-    /// as done (Claude Code fires no hook on interrupt).
-    /// Override with: defaults write mobile.pure.agent-signaller workingStaleSeconds <n>
-    private var staleWorkingSeconds: TimeInterval {
-        let v = UserDefaults.standard.object(forKey: "workingStaleSeconds") as? Double
-        return v ?? SessionStore.defaultWorkingStaleSeconds
-    }
-
-    init(onChange: @escaping ([(id: String, session: Session)], Set<String>) -> Void) {
+    init(onChange: @escaping ([(id: String, session: Session)]) -> Void) {
         self.onChange = onChange
     }
 
-    /// Live sessions with stuck "working" entries shown as done (dot stays, turns
-    /// green) rather than hidden. Returns the displayed list plus the ids that
-    /// were force-completed by staleness.
-    private func snapshot() -> ([(id: String, session: Session)], Set<String>) {
-        let now = Date().timeIntervalSince1970
-        var stale = Set<String>()
-        let list = store.liveSorted(now: now).map { entry -> (id: String, session: Session) in
-            if entry.session.state == .working,
-               !store.isActive(entry.session, now: now, staleWorkingSeconds: staleWorkingSeconds) {
-                stale.insert(entry.id)
-                var s = entry.session
-                s.state = .done
-                return (entry.id, s)
-            }
-            return entry
-        }
-        return (list, stale)
+    func current() -> [(id: String, session: Session)] {
+        store.liveSorted(now: Date().timeIntervalSince1970)
     }
-
-    func current() -> [(id: String, session: Session)] { snapshot().0 }
 
     func start() {
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
@@ -68,10 +46,10 @@ final class Watcher {
         if tick % gcEveryNTicks == 0 {
             store.gc(now: now)
         }
-        let (list, stale) = snapshot()
+        let list = store.liveSorted(now: now)
         let sig = signature(list)
         if sig == lastSignature { return }
         lastSignature = sig
-        onChange(list, stale)
+        onChange(list)
     }
 }

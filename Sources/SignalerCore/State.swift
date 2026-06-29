@@ -114,38 +114,6 @@ public struct SessionStore {
             .sorted { $0.id < $1.id }
     }
 
-    /// Default seconds of transcript silence after which a "working" session is
-    /// treated as no longer active (covers user interrupts, which fire no hook).
-    public static let defaultWorkingStaleSeconds: TimeInterval = 30
-
-    /// True if a "working" session still looks active. A non-working session is
-    /// always considered active here (staleness only clears stuck red). We use
-    /// the transcript file's mtime: it keeps changing while Claude works and
-    /// stops the instant the user interrupts. If we can't read it, we keep the
-    /// session (never falsely clear).
-    public func isActive(_ s: Session, now: Double, staleWorkingSeconds: TimeInterval) -> Bool {
-        guard s.state == .working, let path = s.transcriptPath else { return true }
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else { return true }
-        return now - mtime <= staleWorkingSeconds
-    }
-
-    /// Live sessions with stuck "working" entries (silent transcript) shown as
-    /// done — the dot stays visible and turns green rather than disappearing.
-    public func liveActive(now: Double,
-                           ttl: TimeInterval = SessionStore.defaultTTL,
-                           staleWorkingSeconds: TimeInterval = SessionStore.defaultWorkingStaleSeconds)
-        -> [(id: String, session: Session)] {
-        liveSorted(now: now, ttl: ttl).map { entry in
-            guard entry.session.state == .working,
-                  !isActive(entry.session, now: now, staleWorkingSeconds: staleWorkingSeconds)
-            else { return entry }
-            var s = entry.session
-            s.state = .done
-            return (entry.id, s)
-        }
-    }
-
     /// Remove a session (e.g. on SessionEnd).
     public func remove(id: String) {
         try? FileManager.default.removeItem(at: fileURL(for: id))

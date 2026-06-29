@@ -286,9 +286,8 @@ case "status":
         print("  \(id)  \(s.tool.rawValue)  \(s.state.rawValue)  \(s.cwd)  [\(term)]")
     }
 case "active":
-    // What the badge actually shows (stuck "working" sessions hidden).
-    let stale = flags.values["stale"].flatMap(Double.init) ?? SessionStore.defaultWorkingStaleSeconds
-    let live = store.liveActive(now: now(), staleWorkingSeconds: stale)
+    // What the badge shows: live (non-stale) sessions.
+    let live = store.liveSorted(now: now())
     for (id, s) in live {
         print("  \(id)  \(s.tool.rawValue)  \(s.state.rawValue)")
     }
