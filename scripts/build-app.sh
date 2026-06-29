@@ -6,9 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 echo "==> swift build -c release"
-swift build -c release
+# Force the classic build system so product paths are predictable
+# (.build/release/...); some toolchains default to the new "swiftbuild" engine
+# which uses a different layout.
+BUILD_ARGS="-c release --build-system native"
+swift build $BUILD_ARGS
 
-BIN_DIR="$(swift build -c release --show-bin-path)"
+BIN_DIR="$(swift build $BUILD_ARGS --show-bin-path)"
 APP="$ROOT/AgentSignaller.app"
 
 echo "==> assembling $APP"
