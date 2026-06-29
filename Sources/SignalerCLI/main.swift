@@ -214,10 +214,21 @@ func installClaudeHooks(bin: String) {
 
     var hooks = (root["hooks"] as? [String: Any]) ?? [:]
     hooks["UserPromptSubmit"] = [entry("working")]
-    hooks["Notification"]     = [entry("waiting")]
+    // Yellow only on a genuine permission/approval dialog. We deliberately do
+    // NOT hook the generic Notification event: it also fires for the idle
+    // "Claude is waiting for your input" nudge, which would turn a finished
+    // (green) session yellow ~60s later even though no decision is open.
     hooks["PermissionRequest"] = [entry("waiting")]
     hooks["Stop"]             = [entry("done")]
     hooks["SessionEnd"]       = [entry(nil, remove: true)]
+
+    // Remove any Notification hook we wired in a previous version.
+    if var notif = hooks["Notification"] as? [[String: Any]] {
+        notif.removeAll { blk in
+            (blk["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("agent-signaller") == true } == true
+        }
+        if notif.isEmpty { hooks["Notification"] = nil } else { hooks["Notification"] = notif }
+    }
     root["hooks"] = hooks
 
     backup(url)

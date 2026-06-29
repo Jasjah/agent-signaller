@@ -22,13 +22,27 @@ private enum Defaults {
     static let customOriginY = "customOriginY"
     static let useCustomOrigin = "useCustomOrigin"
     static let soundEnabled = "soundEnabled"
+    static let dotSize = "dotSize"
 }
 
 private enum Layout {
-    static let dot: CGFloat = 19.2  // 20% larger than the original 16pt
     static let gap: CGFloat = 8
     static let padH: CGFloat = 10
     static let padV: CGFloat = 10
+
+    static let minDot: CGFloat = 12
+    static let maxDot: CGFloat = 40       // a decent upper bound
+    static let defaultDot: CGFloat = 19.2
+    static let resizeGrip: CGFloat = 12   // trailing-edge zone that resizes
+
+    /// User-adjustable dot diameter, persisted and clamped.
+    static var dot: CGFloat {
+        let raw = UserDefaults.standard.object(forKey: Defaults.dotSize) as? Double ?? Double(defaultDot)
+        return clampDot(CGFloat(raw))
+    }
+    static func clampDot(_ v: CGFloat) -> CGFloat { min(max(v, minDot), maxDot) }
+    static func setDot(_ v: CGFloat) { UserDefaults.standard.set(Double(clampDot(v)), forKey: Defaults.dotSize) }
+    static func resetDot() { UserDefaults.standard.removeObject(forKey: Defaults.dotSize) }
 
     static func size(count: Int) -> NSSize {
         let n = max(count, 1)
@@ -93,6 +107,7 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         CATransaction.setAnimationDuration(0.3)
         for (i, l) in dotLayers.enumerated() {
             l.frame = Layout.dotRect(i)
+            l.cornerRadius = Layout.dot / 2   // keep round while resizing
             let state: AgentState? = sessions.isEmpty ? nil : sessions[i].session.state
             let (c, glow) = color(for: state)
             l.backgroundColor = c.cgColor
@@ -152,6 +167,15 @@ final class BadgeView: NSView, NSViewToolTipOwner {
 
     // MARK: - Mouse
 
+    private enum DragMode { case none, move, resize }
+    private var dragMode: DragMode = .none
+    private var startDotSize: CGFloat = Layout.defaultDot
+
+    /// Trailing-edge zone (past the last dot) that triggers resize.
+    private func inResizeZone(_ pView: NSPoint) -> Bool {
+        pView.x >= bounds.maxX - Layout.resizeGrip
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let t = trackingArea { removeTrackingArea(t) }
@@ -161,9 +185,25 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         trackingArea = t
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        (inResizeZone(p) ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = NSEvent.mouseLocation  // screen coords
         didDrag = false
+        let pView = convert(event.locationInWindow, from: nil)
+        if inResizeZone(pView) {
+            dragMode = .resize
+            startDotSize = Layout.dot
+        } else {
+            dragMode = .move
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -171,13 +211,26 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         let dx = now.x - mouseDownPoint.x
         let dy = now.y - mouseDownPoint.y
         if !didDrag && (abs(dx) + abs(dy) > 3) { didDrag = true }
-        guard didDrag, let win = window else { return }
+        guard didDrag else { return }
+
+        if dragMode == .resize {
+            // Drag right grows every dot; left shrinks. Cumulative from the
+            // press point, so the size tracks the cursor smoothly.
+            NSCursor.resizeLeftRight.set()
+            Layout.setDot(startDotSize + dx * 0.25)
+            controller?.refreshLayout()
+            return
+        }
+
+        guard let win = window else { return }
         let origin = win.frame.origin
         win.setFrameOrigin(NSPoint(x: origin.x + dx, y: origin.y + dy))
         mouseDownPoint = now
     }
 
     override func mouseUp(with event: NSEvent) {
+        defer { dragMode = .none }
+        if dragMode == .resize { return }   // already persisted live
         if didDrag {
             controller?.didDragWindow()
             return
@@ -243,9 +296,16 @@ final class BadgeController: NSObject {
     }
 
     private func render(_ list: [(id: String, session: Session)]) {
+        lastList = list
         resizeAndPosition(count: max(list.count, 1))
         badge.update(sessions: list)
     }
+
+    private var lastList: [(id: String, session: Session)] = []
+
+    /// Re-lay-out the badge at the current dot size (called while dragging the
+    /// resize grip) without waiting for the next poll.
+    func refreshLayout() { render(lastList) }
 
     // MARK: - Clicks
 
@@ -306,6 +366,10 @@ final class BadgeController: NSObject {
         cornerItem.submenu = cornerSub
         menu.addItem(cornerItem)
 
+        let resetSize = NSMenuItem(title: "Reset dot size", action: #selector(resetDotSize), keyEquivalent: "")
+        resetSize.target = self
+        menu.addItem(resetSize)
+
         let sound = NSMenuItem(title: "Sound when done", action: #selector(toggleSound(_:)), keyEquivalent: "")
         sound.target = self
         sound.state = soundEnabled ? .on : .off
@@ -322,6 +386,11 @@ final class BadgeController: NSObject {
         menu.addItem(quit)
 
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    @objc private func resetDotSize() {
+        Layout.resetDot()
+        refreshLayout()
     }
 
     @objc private func toggleSound(_ sender: NSMenuItem) {
