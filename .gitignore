@@ -1,0 +1,10 @@
+# Build artifacts
+.build/
+.swiftpm/
+AgentSignaller.app/
+
+# Backups created by `agent-signaller install`
+*.agent-signaller.bak
+
+# macOS
+.DS_Store
