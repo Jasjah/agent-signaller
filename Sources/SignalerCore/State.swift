@@ -130,12 +130,20 @@ public struct SessionStore {
         return now - mtime <= staleWorkingSeconds
     }
 
-    /// Live sessions with stuck "working" entries (silent transcript) dropped.
+    /// Live sessions with stuck "working" entries (silent transcript) shown as
+    /// done — the dot stays visible and turns green rather than disappearing.
     public func liveActive(now: Double,
                            ttl: TimeInterval = SessionStore.defaultTTL,
                            staleWorkingSeconds: TimeInterval = SessionStore.defaultWorkingStaleSeconds)
         -> [(id: String, session: Session)] {
-        liveSorted(now: now, ttl: ttl).filter { isActive($0.session, now: now, staleWorkingSeconds: staleWorkingSeconds) }
+        liveSorted(now: now, ttl: ttl).map { entry in
+            guard entry.session.state == .working,
+                  !isActive(entry.session, now: now, staleWorkingSeconds: staleWorkingSeconds)
+            else { return entry }
+            var s = entry.session
+            s.state = .done
+            return (entry.id, s)
+        }
     }
 
     /// Remove a session (e.g. on SessionEnd).

@@ -86,7 +86,7 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         }
     }
 
-    func update(sessions: [(id: String, session: Session)]) {
+    func update(sessions: [(id: String, session: Session)], staleIds: Set<String> = []) {
         self.sessions = sessions
         let count = max(sessions.count, 1)
 
@@ -116,9 +116,11 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         }
         CATransaction.commit()
 
-        // Pulse any dot that just transitioned into "done"; chime once if any did.
+        // Pulse + chime when a session genuinely completes. Skip sessions that
+        // turned green only because work went quiet (interrupt) — they go green
+        // silently, no pulse, no chime.
         var anyFinished = false
-        for entry in sessions {
+        for entry in sessions where !staleIds.contains(entry.id) {
             let prev = prevStates[entry.id]
             if prev != nil && prev != .done && entry.session.state == .done,
                let idx = sessions.firstIndex(where: { $0.id == entry.id }) {
@@ -288,24 +290,24 @@ final class BadgeController: NSObject {
         resizeAndPosition(count: 1)
         window.orderFrontRegardless()
 
-        watcher = Watcher { [weak self] list in
-            self?.render(list)
+        watcher = Watcher { [weak self] list, stale in
+            self?.render(list, staleIds: stale)
         }
         watcher.start()
-        render(watcher.current())
+        render(watcher.current(), staleIds: [])
     }
 
-    private func render(_ list: [(id: String, session: Session)]) {
+    private func render(_ list: [(id: String, session: Session)], staleIds: Set<String>) {
         lastList = list
         resizeAndPosition(count: max(list.count, 1))
-        badge.update(sessions: list)
+        badge.update(sessions: list, staleIds: staleIds)
     }
 
     private var lastList: [(id: String, session: Session)] = []
 
     /// Re-lay-out the badge at the current dot size (called while dragging the
     /// resize grip) without waiting for the next poll.
-    func refreshLayout() { render(lastList) }
+    func refreshLayout() { render(lastList, staleIds: []) }
 
     // MARK: - Clicks
 
