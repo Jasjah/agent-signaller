@@ -8,7 +8,7 @@ one dot per live session — so you can tell at a glance who's busy and who need
 you, from anywhere on any desktop.
 
 - 🔴 **RED** — an agent is actively working
-- 🟡 **YELLOW** — an agent is blocked, waiting for you (permission / input)
+- 🟡 **YELLOW** — an agent is blocked on a permission / approval prompt
 - 🟢 **GREEN** — finished / idle → your turn
 
 **One dot per session**, in a row. **Click a dot to jump straight to its
@@ -93,7 +93,7 @@ enable **Launch at Login**, or quit.
 
 | Tool | File | Hooks |
 |------|------|-------|
-| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit`→working, `Notification`/`PermissionRequest`→waiting, `Stop`→done, `SessionEnd`→clear |
+| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit`→working, `PermissionRequest`→waiting, `Stop`→done, `SessionEnd`→clear |
 | Codex | `~/.codex/config.toml` | `notify` → marks the session done on turn-complete |
 
 Both files are backed up to `*.agent-signaller.bak` before editing.
@@ -105,8 +105,9 @@ Both files are backed up to `*.agent-signaller.bak` before editing.
 
 ## Usage
 
-- **Dots** read left-to-right, one per live session. Hover for a tooltip
-  (`tool · state · project`).
+- **Dots** read left-to-right, one per live session. **Hover** a dot for a
+  tooltip showing what it's working on — `tool · state · project` plus the
+  session's current task (its latest prompt).
 - **Left-click a dot** → focus that session's terminal tab.
 - **Drag** the badge to reposition (remembered across launches).
 - **Resize** → grab the badge's **trailing edge** (the cursor turns into a
@@ -154,8 +155,15 @@ and renders a dot per session. Stale sessions (>30 min) are pruned automatically
 - **Codex "working" (red):** Codex only emits an event when a turn *completes*,
   not when it starts — so Codex reliably drives the **green "done"** signal, while
   Claude Code drives the full red/yellow/green cycle.
+- **Interrupts stay red:** Claude Code fires no hook when you interrupt (Esc), so
+  a session stays **red** until you send another prompt or it finishes normally
+  (cleared by the 30-min safety GC otherwise). This is deliberate — a timer
+  couldn't tell a long-running command from an interrupt without falsely going
+  green mid-work.
 - **Tab focusing** works for Terminal.app and iTerm2 (matched by `tty`); other
-  terminals are simply activated.
+  terminals are simply activated. To make clicks jump across desktops, enable
+  *System Settings → Desktop & Dock → Mission Control → "When switching to an
+  application, switch to a Space with open windows."*
 
 ---
 
