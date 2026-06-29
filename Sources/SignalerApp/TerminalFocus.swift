@@ -35,21 +35,26 @@ enum TerminalFocus {
     }
 
     private static func terminalAppScript(tty: String) -> String {
+        // Select the matching tab and raise its window *before* activating, so
+        // macOS switches to that window's Space (requires the Mission Control
+        // option "switch to a Space with open windows"). Only fall back to a
+        // plain activate when no tab matches (e.g. the tab was closed).
         """
         tell application "Terminal"
-            activate
             repeat with w in windows
                 repeat with t in tabs of w
                     try
                         if (tty of t) is "\(escape(tty))" then
                             set selected of t to true
-                            set frontmost of w to true
                             set index of w to 1
+                            set frontmost of w to true
+                            activate
                             return
                         end if
                     end try
                 end repeat
             end repeat
+            activate
         end tell
         """
     }
