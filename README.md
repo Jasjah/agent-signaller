@@ -109,8 +109,11 @@ Both files are backed up to `*.agent-signaller.bak` before editing.
   (`tool · state · project`).
 - **Left-click a dot** → focus that session's terminal tab.
 - **Drag** the badge to reposition (remembered across launches).
-- **Right-click** → snap-to-corner, toggle the completion sound, Launch at
-  Login, Quit.
+- **Resize** → grab the badge's **trailing edge** (the cursor turns into a
+  resize arrow) and drag to scale all dots at once (12–40pt, remembered).
+  "Reset dot size" in the menu snaps back to default.
+- **Right-click** → snap-to-corner, reset dot size, toggle the completion
+  sound, Launch at Login, Quit.
 
 <p align="center">
   <img src="docs/context-menu.png" width="240" alt="Agent Signaller right-click menu: Snap to corner, Sound when done, Launch at Login, Quit">
