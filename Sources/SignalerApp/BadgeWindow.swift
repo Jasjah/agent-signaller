@@ -464,10 +464,10 @@ final class TooltipWindow {
         label.isSelectable = false
         label.drawsBackground = false
         label.textColor = .white
-        label.font = .systemFont(ofSize: 12)
-        label.maximumNumberOfLines = 3
-        label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
+        label.font = .systemFont(ofSize: 12.5)
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.cell?.truncatesLastVisibleLine = false
 
         let content = NSView()
         content.wantsLayer = true
@@ -486,12 +486,16 @@ final class TooltipWindow {
     }
 
     func show(text: String, near screenPoint: NSPoint) {
-        label.preferredMaxLayoutWidth = maxWidth - pad * 2
         label.stringValue = text
-        label.invalidateIntrinsicContentSize()
-        let s = label.intrinsicContentSize
-        let w = min(maxWidth - pad * 2, ceil(s.width))
-        let h = ceil(s.height)
+        // Measure the text directly — intrinsicContentSize under-sizes a
+        // wrapping label and was clipping the first line.
+        let avail = maxWidth - pad * 2
+        let opts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+        let measured = (text as NSString).boundingRect(
+            with: NSSize(width: avail, height: 2000), options: opts,
+            attributes: [.font: label.font as Any])
+        let w = min(avail, ceil(measured.width) + 4)   // small fudge to avoid re-wrap
+        let h = ceil(measured.height) + 2
         let winSize = NSSize(width: w + pad * 2, height: h + pad * 2)
 
         var origin = NSPoint(x: screenPoint.x - winSize.width / 2, y: screenPoint.y + 14)
