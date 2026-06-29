@@ -15,12 +15,19 @@ final class Watcher {
     private let interval: TimeInterval = 0.4
     private let gcEveryNTicks = 150  // ~ every 60s
 
+    /// Seconds of transcript silence before a stuck "working" session is hidden.
+    /// Override with: defaults write mobile.pure.agent-signaller workingStaleSeconds <n>
+    private var staleWorkingSeconds: TimeInterval {
+        let v = UserDefaults.standard.object(forKey: "workingStaleSeconds") as? Double
+        return v ?? SessionStore.defaultWorkingStaleSeconds
+    }
+
     init(onChange: @escaping ([(id: String, session: Session)]) -> Void) {
         self.onChange = onChange
     }
 
     func current() -> [(id: String, session: Session)] {
-        store.liveSorted(now: Date().timeIntervalSince1970)
+        store.liveActive(now: Date().timeIntervalSince1970, staleWorkingSeconds: staleWorkingSeconds)
     }
 
     func start() {
@@ -41,7 +48,7 @@ final class Watcher {
         if tick % gcEveryNTicks == 0 {
             store.gc(now: now)
         }
-        let list = store.liveSorted(now: now)
+        let list = store.liveActive(now: now, staleWorkingSeconds: staleWorkingSeconds)
         let sig = signature(list)
         if sig == lastSignature { return }
         lastSignature = sig

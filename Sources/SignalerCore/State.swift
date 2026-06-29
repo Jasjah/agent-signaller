@@ -33,9 +33,13 @@ public struct Session: Codable {
     public var termProgram: String?   // e.g. "Apple_Terminal", "iTerm.app"
     public var termSessionId: String? // TERM_SESSION_ID / ITERM_SESSION_ID
     public var tty: String?           // e.g. "/dev/ttys003"
+    // Claude transcript path; its mtime tells us if work is still progressing
+    // (Claude Code fires no hook on user interrupt — see liveSorted staleness).
+    public var transcriptPath: String?
 
     public init(tool: AgentTool, state: AgentState, cwd: String, updated: Double,
-                termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil) {
+                termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil,
+                transcriptPath: String? = nil) {
         self.tool = tool
         self.state = state
         self.cwd = cwd
@@ -43,6 +47,7 @@ public struct Session: Codable {
         self.termProgram = termProgram
         self.termSessionId = termSessionId
         self.tty = tty
+        self.transcriptPath = transcriptPath
     }
 }
 
@@ -84,7 +89,8 @@ public struct SessionStore {
     /// fields are preserved from the existing record when the new value is nil
     /// (so a later Stop hook that didn't re-capture them keeps the tab handle).
     public func upsert(id: String, tool: AgentTool, state: AgentState, cwd: String, now: Double,
-                       termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil) throws {
+                       termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil,
+                       transcriptPath: String? = nil) throws {
         try ensureDir()
         let url = fileURL(for: id)
         let existing: Session? = (try? Data(contentsOf: url)).flatMap {
@@ -94,7 +100,8 @@ public struct SessionStore {
             tool: tool, state: state, cwd: cwd, updated: now,
             termProgram: termProgram ?? existing?.termProgram,
             termSessionId: termSessionId ?? existing?.termSessionId,
-            tty: tty ?? existing?.tty)
+            tty: tty ?? existing?.tty,
+            transcriptPath: transcriptPath ?? existing?.transcriptPath)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(session)
@@ -105,6 +112,30 @@ public struct SessionStore {
     public func liveSorted(now: Double, ttl: TimeInterval = SessionStore.defaultTTL) -> [(id: String, session: Session)] {
         all().filter { now - $0.session.updated <= ttl }
             .sorted { $0.id < $1.id }
+    }
+
+    /// Default seconds of transcript silence after which a "working" session is
+    /// treated as no longer active (covers user interrupts, which fire no hook).
+    public static let defaultWorkingStaleSeconds: TimeInterval = 30
+
+    /// True if a "working" session still looks active. A non-working session is
+    /// always considered active here (staleness only clears stuck red). We use
+    /// the transcript file's mtime: it keeps changing while Claude works and
+    /// stops the instant the user interrupts. If we can't read it, we keep the
+    /// session (never falsely clear).
+    public func isActive(_ s: Session, now: Double, staleWorkingSeconds: TimeInterval) -> Bool {
+        guard s.state == .working, let path = s.transcriptPath else { return true }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 else { return true }
+        return now - mtime <= staleWorkingSeconds
+    }
+
+    /// Live sessions with stuck "working" entries (silent transcript) dropped.
+    public func liveActive(now: Double,
+                           ttl: TimeInterval = SessionStore.defaultTTL,
+                           staleWorkingSeconds: TimeInterval = SessionStore.defaultWorkingStaleSeconds)
+        -> [(id: String, session: Session)] {
+        liveSorted(now: now, ttl: ttl).filter { isActive($0.session, now: now, staleWorkingSeconds: staleWorkingSeconds) }
     }
 
     /// Remove a session (e.g. on SessionEnd).

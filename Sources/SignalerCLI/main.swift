@@ -135,9 +135,11 @@ func cmdReport(_ flags: Flags) {
             fail("report --source claude requires --state working|waiting|done (or --remove)")
         }
         let term = captureTerminal()
+        let transcript = json["transcript_path"] as? String
         do {
             try store.upsert(id: id, tool: .claude, state: state, cwd: cwd, now: now(),
-                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty)
+                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
+                             transcriptPath: transcript)
         } catch {
             fail("could not write session: \(error)")
         }
@@ -283,6 +285,14 @@ case "status":
         let term = [s.termProgram, s.tty].compactMap { $0 }.joined(separator: " ")
         print("  \(id)  \(s.tool.rawValue)  \(s.state.rawValue)  \(s.cwd)  [\(term)]")
     }
+case "active":
+    // What the badge actually shows (stuck "working" sessions hidden).
+    let stale = flags.values["stale"].flatMap(Double.init) ?? SessionStore.defaultWorkingStaleSeconds
+    let live = store.liveActive(now: now(), staleWorkingSeconds: stale)
+    for (id, s) in live {
+        print("  \(id)  \(s.tool.rawValue)  \(s.state.rawValue)")
+    }
+    if live.isEmpty { print("  (idle)") }
 default:
     fail("unknown command \(sub)")
 }
