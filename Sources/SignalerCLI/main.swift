@@ -63,6 +63,19 @@ func readStdinJSON() -> [String: Any] {
     return obj
 }
 
+extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Collapse a prompt into a short single-line topic for the hover tooltip.
+func shortTitle(_ s: String, max: Int = 100) -> String {
+    let collapsed = s.split(whereSeparator: { $0.isNewline || $0 == "\t" })
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespaces)
+    if collapsed.count <= max { return collapsed }
+    return String(collapsed.prefix(max)).trimmingCharacters(in: .whitespaces) + "…"
+}
+
 func parseJSON(_ s: String) -> [String: Any] {
     guard let data = s.data(using: .utf8),
           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -136,10 +149,11 @@ func cmdReport(_ flags: Flags) {
         }
         let term = captureTerminal()
         let transcript = json["transcript_path"] as? String
+        let title = (json["prompt"] as? String).map { shortTitle($0) }
         do {
             try store.upsert(id: id, tool: .claude, state: state, cwd: cwd, now: now(),
                              termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
-                             transcriptPath: transcript)
+                             transcriptPath: transcript, title: title)
         } catch {
             fail("could not write session: \(error)")
         }
@@ -158,9 +172,13 @@ func cmdReport(_ flags: Flags) {
             return
         }
         let term = captureTerminal()
+        // Codex passes the user messages that drove the turn.
+        let inputs = (json["input-messages"] as? [String]) ?? (json["input_messages"] as? [String])
+        let title = inputs?.joined(separator: " ").nonEmpty.map { shortTitle($0) }
         do {
             try store.upsert(id: id, tool: .codex, state: state, cwd: cwd, now: now(),
-                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty)
+                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
+                             title: title)
         } catch {
             fail("could not write session: \(error)")
         }

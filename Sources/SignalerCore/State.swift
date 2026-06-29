@@ -33,13 +33,13 @@ public struct Session: Codable {
     public var termProgram: String?   // e.g. "Apple_Terminal", "iTerm.app"
     public var termSessionId: String? // TERM_SESSION_ID / ITERM_SESSION_ID
     public var tty: String?           // e.g. "/dev/ttys003"
-    // Claude transcript path; its mtime tells us if work is still progressing
-    // (Claude Code fires no hook on user interrupt — see liveSorted staleness).
     public var transcriptPath: String?
+    /// Short human-readable topic (the latest user prompt) shown on hover.
+    public var title: String?
 
     public init(tool: AgentTool, state: AgentState, cwd: String, updated: Double,
                 termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil,
-                transcriptPath: String? = nil) {
+                transcriptPath: String? = nil, title: String? = nil) {
         self.tool = tool
         self.state = state
         self.cwd = cwd
@@ -48,6 +48,7 @@ public struct Session: Codable {
         self.termSessionId = termSessionId
         self.tty = tty
         self.transcriptPath = transcriptPath
+        self.title = title
     }
 }
 
@@ -90,7 +91,7 @@ public struct SessionStore {
     /// (so a later Stop hook that didn't re-capture them keeps the tab handle).
     public func upsert(id: String, tool: AgentTool, state: AgentState, cwd: String, now: Double,
                        termProgram: String? = nil, termSessionId: String? = nil, tty: String? = nil,
-                       transcriptPath: String? = nil) throws {
+                       transcriptPath: String? = nil, title: String? = nil) throws {
         try ensureDir()
         let url = fileURL(for: id)
         let existing: Session? = (try? Data(contentsOf: url)).flatMap {
@@ -101,7 +102,8 @@ public struct SessionStore {
             termProgram: termProgram ?? existing?.termProgram,
             termSessionId: termSessionId ?? existing?.termSessionId,
             tty: tty ?? existing?.tty,
-            transcriptPath: transcriptPath ?? existing?.transcriptPath)
+            transcriptPath: transcriptPath ?? existing?.transcriptPath,
+            title: title ?? existing?.title)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(session)

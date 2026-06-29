@@ -58,7 +58,7 @@ private enum Layout {
 
 /// A horizontal row of dots — one per live session — that reflects each
 /// session's state and lets the user click a dot to focus its terminal tab.
-final class BadgeView: NSView, NSViewToolTipOwner {
+final class BadgeView: NSView {
     private var dotLayers: [CALayer] = []
     private(set) var sessions: [(id: String, session: Session)] = []
     private var prevStates: [String: AgentState] = [:]
@@ -128,8 +128,6 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         }
         prevStates = Dictionary(sessions.map { ($0.id, $0.session.state) }, uniquingKeysWith: { a, _ in a })
         if anyFinished { controller?.sessionDidFinish() }
-
-        rebuildTooltips()
     }
 
     private func pulse(_ dot: CALayer) {
@@ -138,24 +136,6 @@ final class BadgeView: NSView, NSViewToolTipOwner {
         anim.keyTimes = [0, 0.4, 1]
         anim.duration = 0.5
         dot.add(anim, forKey: "pulse")
-    }
-
-    // MARK: - Tooltips (identify each session on hover)
-
-    private func rebuildTooltips() {
-        removeAllToolTips()
-        guard !sessions.isEmpty else { return }
-        for i in sessions.indices {
-            addToolTip(Layout.dotRect(i), owner: self, userData: nil)
-        }
-    }
-
-    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
-              point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
-        guard let i = hitDot(point), i < sessions.count else { return "idle" }
-        let s = sessions[i].session
-        let proj = (s.cwd as NSString).lastPathComponent
-        return "\(s.tool.rawValue) · \(s.state.rawValue)\(proj.isEmpty ? "" : " · \(proj)")"
     }
 
     // MARK: - Hit testing
@@ -187,16 +167,29 @@ final class BadgeView: NSView, NSViewToolTipOwner {
 
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        (inResizeZone(p) ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+        if inResizeZone(p) {
+            NSCursor.resizeLeftRight.set()
+            controller?.hideTooltip()
+            return
+        }
+        NSCursor.arrow.set()
+        if let i = hitDot(p), i < sessions.count {
+            let screenPt = window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
+            controller?.showTooltip(for: sessions[i].session, at: screenPt)
+        } else {
+            controller?.hideTooltip()
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
+        controller?.hideTooltip()
     }
 
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = NSEvent.mouseLocation  // screen coords
         didDrag = false
+        controller?.hideTooltip()
         let pView = convert(event.locationInWindow, from: nil)
         if inResizeZone(pView) {
             dragMode = .resize
@@ -264,6 +257,24 @@ final class BadgeController: NSObject {
         guard soundEnabled else { return }
         doneSound?.stop()
         doneSound?.play()
+    }
+
+    // MARK: - Hover tooltip
+
+    private lazy var tooltip = TooltipWindow()
+
+    func showTooltip(for s: Session, at screenPoint: NSPoint) {
+        tooltip.show(text: tooltipText(s), near: screenPoint)
+    }
+
+    func hideTooltip() { tooltip.hide() }
+
+    private func tooltipText(_ s: Session) -> String {
+        let proj = (s.cwd as NSString).lastPathComponent
+        let head = [s.tool.rawValue, s.state.rawValue, proj.isEmpty ? nil : proj]
+            .compactMap { $0 }.joined(separator: " · ")
+        if let t = s.title, !t.isEmpty { return head + "\n" + t }
+        return head
     }
 
     func start() {
@@ -436,4 +447,64 @@ final class BadgeController: NSObject {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+/// A small floating label that shows a session's topic on hover. Custom (not a
+/// native NSToolTip) because tooltips are unreliable for a borderless, non-key
+/// window in an accessory app.
+final class TooltipWindow {
+    private let panel: NSWindow
+    private let label: NSTextField
+    private let pad: CGFloat = 8
+    private let maxWidth: CGFloat = 300
+
+    init() {
+        label = NSTextField(wrappingLabelWithString: "")
+        label.isEditable = false
+        label.isSelectable = false
+        label.drawsBackground = false
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 12)
+        label.maximumNumberOfLines = 3
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = true
+
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.96).cgColor
+        content.layer?.cornerRadius = 6
+        content.addSubview(label)
+
+        panel = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        panel.contentView = content
+    }
+
+    func show(text: String, near screenPoint: NSPoint) {
+        label.preferredMaxLayoutWidth = maxWidth - pad * 2
+        label.stringValue = text
+        label.invalidateIntrinsicContentSize()
+        let s = label.intrinsicContentSize
+        let w = min(maxWidth - pad * 2, ceil(s.width))
+        let h = ceil(s.height)
+        let winSize = NSSize(width: w + pad * 2, height: h + pad * 2)
+
+        var origin = NSPoint(x: screenPoint.x - winSize.width / 2, y: screenPoint.y + 14)
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) ?? NSScreen.main {
+            let vf = screen.visibleFrame
+            origin.x = min(max(origin.x, vf.minX + 4), vf.maxX - winSize.width - 4)
+            // flip below the cursor if it would run off the top
+            if origin.y + winSize.height > vf.maxY - 4 { origin.y = screenPoint.y - winSize.height - 14 }
+        }
+        panel.setFrame(NSRect(origin: origin, size: winSize), display: true)
+        label.frame = NSRect(x: pad, y: pad, width: w, height: h)
+        panel.orderFrontRegardless()
+    }
+
+    func hide() { panel.orderOut(nil) }
 }
