@@ -325,18 +325,21 @@ final class BadgeController: NSObject {
 
     // MARK: - Positioning
 
+    /// Margin between the badge and the screen edge.
+    private static let screenInset: CGFloat = 16
+
     private func resizeAndPosition(count: Int) {
         let size = Layout.size(count: count)
         var frame = window.frame
         frame.size = size
 
+        let inset = Self.screenInset
         if defaults.bool(forKey: Defaults.useCustomOrigin) {
             // Keep the dragged origin (row grows rightward/upward).
             frame.origin = NSPoint(x: defaults.double(forKey: Defaults.customOriginX),
                                    y: defaults.double(forKey: Defaults.customOriginY))
         } else if let screen = NSScreen.main {
             let vf = screen.visibleFrame
-            let inset: CGFloat = 8
             let corner = Corner(rawValue: defaults.string(forKey: Defaults.corner) ?? "") ?? .bottomRight
             switch corner {
             case .topLeft:     frame.origin = NSPoint(x: vf.minX + inset, y: vf.maxY - size.height - inset)
@@ -344,6 +347,14 @@ final class BadgeController: NSObject {
             case .bottomLeft:  frame.origin = NSPoint(x: vf.minX + inset, y: vf.minY + inset)
             case .bottomRight: frame.origin = NSPoint(x: vf.maxX - size.width - inset, y: vf.minY + inset)
             }
+        }
+
+        // Always keep the whole badge inside the visible screen with a margin —
+        // so it never pokes under the edge when it appears or grows a new dot.
+        if let screen = window.screen ?? NSScreen.main {
+            let vf = screen.visibleFrame
+            frame.origin.x = min(max(frame.origin.x, vf.minX + inset), vf.maxX - size.width - inset)
+            frame.origin.y = min(max(frame.origin.y, vf.minY + inset), vf.maxY - size.height - inset)
         }
         window.setFrame(frame, display: true)
     }
