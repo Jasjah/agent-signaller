@@ -18,7 +18,8 @@ final class Watcher {
     private var tick = 0
 
     private let interval: TimeInterval = 0.4
-    private let gcEveryNTicks = 150  // ~ every 60s
+    private let gcEveryNTicks = 150     // ~ every 60s
+    private let ttyCheckEveryNTicks = 12 // ~ every 5s — clear dots for closed terminals
 
     init(onChange: @escaping ([(id: String, session: Session)]) -> Void) {
         self.onChange = onChange
@@ -45,6 +46,9 @@ final class Watcher {
         tick += 1
         if tick % gcEveryNTicks == 0 {
             store.gc(now: now)
+        }
+        if tick % ttyCheckEveryNTicks == 0 {
+            store.pruneClosedTerminals()  // drop dots whose terminal was closed
         }
         let list = store.liveSorted(now: now)
         let sig = signature(list)

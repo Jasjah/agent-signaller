@@ -146,6 +146,51 @@ public struct SessionStore {
         return pruned
     }
 
+    /// The set of ttys (e.g. "ttys001") that currently have a running process,
+    /// via `ps`. An empty result means the lookup failed (caller should not
+    /// prune in that case).
+    public static func activeTTYs() -> Set<String> {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-A", "-o", "tty="]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return [] }
+        p.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return Set(out.split(whereSeparator: { $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty })
+    }
+
+    private static func normalizeTTY(_ tty: String) -> String {
+        tty.hasPrefix("/dev/") ? String(tty.dropFirst(5)) : tty
+    }
+
+    /// Remove sessions whose terminal (captured tty) no longer has any running
+    /// process — i.e. the tab/window was closed. Sessions without a known tty
+    /// are left alone. No-ops if `active` is empty (lookup failed). Returns the
+    /// number pruned.
+    @discardableResult
+    public func pruneClosedTerminals(active: Set<String>) -> Int {
+        guard !active.isEmpty else { return 0 }
+        var pruned = 0
+        for (id, s) in all() {
+            guard let tty = s.tty, !tty.isEmpty else { continue }
+            if !active.contains(SessionStore.normalizeTTY(tty)) {
+                remove(id: id)
+                pruned += 1
+            }
+        }
+        return pruned
+    }
+
+    @discardableResult
+    public func pruneClosedTerminals() -> Int {
+        pruneClosedTerminals(active: SessionStore.activeTTYs())
+    }
+
     /// Aggregate state across all (non-stale) sessions.
     /// Returns nil when there are no live sessions (idle).
     public func aggregate(now: Double, ttl: TimeInterval = SessionStore.defaultTTL) -> AgentState? {

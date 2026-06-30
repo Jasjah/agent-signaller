@@ -155,7 +155,12 @@ and renders a dot per session. Stale sessions (>30 min) are pruned automatically
 - **Codex needs hooks (≥ v0.117):** the full red/yellow/green cycle relies on
   Codex's hooks system. On older Codex (which only had the `notify` program,
   fired on turn-complete) you'd get just the green "done" signal — upgrade Codex
-  for working/waiting too.
+  for working/waiting too. Codex also has no session-end hook, so a closed Codex
+  session is cleared by **closed-terminal detection** below rather than a hook.
+- **Clearing closed sessions:** Claude clears on `SessionEnd`; for either tool,
+  closing the **terminal tab/window** is also detected (the dot's tty no longer
+  has a process) and the dot is removed within a few seconds. If you quit the
+  agent but leave its terminal open, the dot lingers (green) until the 30-min GC.
 - **Interrupts stay red:** Claude Code fires no hook when you interrupt (Esc), so
   a session stays **red** until you send another prompt or it finishes normally
   (cleared by the 30-min safety GC otherwise). This is deliberate — a timer
