@@ -48,7 +48,16 @@ moving — a single glance at the corner of any screen.
 Requires macOS 13+ and the Xcode command-line tools (`swift`). Everything builds
 from source — no signing/notarization needed.
 
-### Homebrew (recommended)
+### One-line curl (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jasjah/agent-signaller/main/install.sh | bash
+```
+
+Builds with your Xcode toolchain and wires everything up in one go — no extra
+steps.
+
+### Homebrew
 
 ```bash
 brew install jasjah/agent-signaller/agent-signaller
@@ -60,12 +69,6 @@ Then finish setup (the formula prints these as caveats):
 cp -R "$(brew --prefix)/opt/agent-signaller/AgentSignaller.app" /Applications/
 agent-signaller install --bin "$(brew --prefix)/bin/agent-signaller"
 open -a AgentSignaller
-```
-
-### One-line curl
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Jasjah/agent-signaller/main/install.sh | bash
 ```
 
 ### From a clone
