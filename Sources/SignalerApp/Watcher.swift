@@ -20,6 +20,11 @@ final class Watcher {
     private let interval: TimeInterval = 0.4
     private let gcEveryNTicks = 150     // ~ every 60s
     private let ttyCheckEveryNTicks = 12 // ~ every 5s — clear dots for closed terminals
+    // Session ids whose terminal we've confirmed alive at least once. We only
+    // prune a session on close if it was previously seen alive — so a session
+    // whose captured tty we can't match (e.g. Codex's transient hook tty) is
+    // never falsely cleared while still open.
+    private var seenAlive = Set<String>()
 
     init(onChange: @escaping ([(id: String, session: Session)]) -> Void) {
         self.onChange = onChange
@@ -37,6 +42,24 @@ final class Watcher {
         timer = t
     }
 
+    /// Remove sessions whose terminal was closed — but only ones we previously
+    /// confirmed alive, so an unmatched/transient tty never falsely clears an
+    /// open session.
+    private func pruneClosedTerminals() {
+        let active = SessionStore.activeTTYs()
+        guard !active.isEmpty else { return }  // lookup failed → don't touch anything
+        for (id, s) in store.all() {
+            guard let tty = s.tty, !tty.isEmpty else { continue }
+            if active.contains(SessionStore.normalizeTTY(tty)) {
+                seenAlive.insert(id)
+            } else if seenAlive.contains(id) {
+                store.remove(id: id)   // was alive, terminal now gone → closed
+                seenAlive.remove(id)
+            }
+            // else: never confirmed alive → untrusted tty, leave to the GC
+        }
+    }
+
     private func signature(_ list: [(id: String, session: Session)]) -> String {
         list.map { "\($0.id):\($0.session.state.rawValue)" }.joined(separator: "|")
     }
@@ -48,7 +71,7 @@ final class Watcher {
             store.gc(now: now)
         }
         if tick % ttyCheckEveryNTicks == 0 {
-            store.pruneClosedTerminals()  // drop dots whose terminal was closed
+            pruneClosedTerminals()  // drop dots whose terminal was closed
         }
         let list = store.liveSorted(now: now)
         let sig = signature(list)

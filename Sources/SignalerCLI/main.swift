@@ -322,8 +322,7 @@ case "install":
     cmdInstall(flags)
 case "gc":
     let n = store.gc(now: now())
-    let c = store.pruneClosedTerminals()
-    print("pruned \(n) stale + \(c) closed-terminal session(s)")
+    print("pruned \(n) stale session(s)")
 case "status":
     let agg = store.aggregate(now: now())
     print(agg?.rawValue ?? "idle")

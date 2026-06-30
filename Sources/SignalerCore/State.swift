@@ -164,31 +164,9 @@ public struct SessionStore {
             .filter { !$0.isEmpty })
     }
 
-    private static func normalizeTTY(_ tty: String) -> String {
+    /// Normalize a stored tty ("/dev/ttys001") to ps form ("ttys001").
+    public static func normalizeTTY(_ tty: String) -> String {
         tty.hasPrefix("/dev/") ? String(tty.dropFirst(5)) : tty
-    }
-
-    /// Remove sessions whose terminal (captured tty) no longer has any running
-    /// process — i.e. the tab/window was closed. Sessions without a known tty
-    /// are left alone. No-ops if `active` is empty (lookup failed). Returns the
-    /// number pruned.
-    @discardableResult
-    public func pruneClosedTerminals(active: Set<String>) -> Int {
-        guard !active.isEmpty else { return 0 }
-        var pruned = 0
-        for (id, s) in all() {
-            guard let tty = s.tty, !tty.isEmpty else { continue }
-            if !active.contains(SessionStore.normalizeTTY(tty)) {
-                remove(id: id)
-                pruned += 1
-            }
-        }
-        return pruned
-    }
-
-    @discardableResult
-    public func pruneClosedTerminals() -> Int {
-        pruneClosedTerminals(active: SessionStore.activeTTYs())
     }
 
     /// Aggregate state across all (non-stale) sessions.
