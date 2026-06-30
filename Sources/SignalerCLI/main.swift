@@ -134,57 +134,63 @@ func captureTerminal() -> TerminalInfo {
 
 func cmdReport(_ flags: Flags) {
     let source = flags.values["source"] ?? "claude"
-
     switch source {
     case "claude":
-        let json = readStdinJSON()
-        let id = (json["session_id"] as? String) ?? "claude-unknown"
-        let cwd = (json["cwd"] as? String) ?? ""
-        if flags.has("remove") {
-            store.remove(id: id)
-            return
-        }
-        guard let stateRaw = flags.values["state"], let state = AgentState(rawValue: stateRaw) else {
-            fail("report --source claude requires --state working|waiting|done (or --remove)")
-        }
-        let term = captureTerminal()
-        let transcript = json["transcript_path"] as? String
-        let title = (json["prompt"] as? String).map { shortTitle($0) }
-        do {
-            try store.upsert(id: id, tool: .claude, state: state, cwd: cwd, now: now(),
-                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
-                             transcriptPath: transcript, title: title)
-        } catch {
-            fail("could not write session: \(error)")
-        }
-
+        reportFromStdin(tool: .claude, idPrefix: "", flags: flags)
     case "codex":
-        // Codex passes its event JSON as a single argv string.
-        let json = flags.positionals.last.map(parseJSON) ?? [:]
-        // thread-id is Codex's session identifier; prefix to avoid clashing with Claude ids.
-        let thread = (json["thread-id"] as? String) ?? (json["thread_id"] as? String) ?? "unknown"
-        let id = "codex-\(thread)"
-        let cwd = (json["cwd"] as? String) ?? ""
-        // Codex only emits agent-turn-complete → the turn is done.
-        let state: AgentState = flags.values["state"].flatMap(AgentState.init(rawValue:)) ?? .done
-        if flags.has("remove") {
-            store.remove(id: id)
-            return
-        }
-        let term = captureTerminal()
-        // Codex passes the user messages that drove the turn.
-        let inputs = (json["input-messages"] as? [String]) ?? (json["input_messages"] as? [String])
-        let title = inputs?.joined(separator: " ").nonEmpty.map { shortTitle($0) }
-        do {
-            try store.upsert(id: id, tool: .codex, state: state, cwd: cwd, now: now(),
-                             termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
-                             title: title)
-        } catch {
-            fail("could not write session: \(error)")
-        }
-
+        // Modern Codex (>= v0.117) fires real hooks with the same stdin JSON
+        // shape as Claude (session_id, cwd, prompt, transcript_path).
+        reportFromStdin(tool: .codex, idPrefix: "codex-", flags: flags)
+    case "codex-notify":
+        reportCodexNotify(flags)
     default:
-        fail("unknown --source \(source) (expected claude or codex)")
+        fail("unknown --source \(source) (expected claude, codex, or codex-notify)")
+    }
+}
+
+/// Handle a hook that delivers its event JSON on stdin (Claude Code and modern
+/// Codex hooks share this shape).
+func reportFromStdin(tool: AgentTool, idPrefix: String, flags: Flags) {
+    let json = readStdinJSON()
+    let sid = (json["session_id"] as? String) ?? "unknown"
+    let id = idPrefix + sid
+    let cwd = (json["cwd"] as? String) ?? ""
+    if flags.has("remove") {
+        store.remove(id: id)
+        return
+    }
+    guard let stateRaw = flags.values["state"], let state = AgentState(rawValue: stateRaw) else {
+        fail("report --source \(tool.rawValue) requires --state working|waiting|done (or --remove)")
+    }
+    let term = captureTerminal()
+    let transcript = json["transcript_path"] as? String
+    let title = (json["prompt"] as? String).map { shortTitle($0) }
+    do {
+        try store.upsert(id: id, tool: tool, state: state, cwd: cwd, now: now(),
+                         termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
+                         transcriptPath: transcript, title: title)
+    } catch {
+        fail("could not write session: \(error)")
+    }
+}
+
+/// Legacy Codex `notify` program: event JSON arrives as a single argv string and
+/// only ever signals turn completion (done).
+func reportCodexNotify(_ flags: Flags) {
+    let json = flags.positionals.last.map(parseJSON) ?? [:]
+    let thread = (json["thread-id"] as? String) ?? (json["thread_id"] as? String) ?? "unknown"
+    let id = "codex-\(thread)"
+    let cwd = (json["cwd"] as? String) ?? ""
+    if flags.has("remove") { store.remove(id: id); return }
+    let inputs = (json["input-messages"] as? [String]) ?? (json["input_messages"] as? [String])
+    let title = inputs?.joined(separator: " ").nonEmpty.map { shortTitle($0) }
+    let term = captureTerminal()
+    do {
+        try store.upsert(id: id, tool: .codex, state: .done, cwd: cwd, now: now(),
+                         termProgram: term.program, termSessionId: term.sessionId, tty: term.tty,
+                         title: title)
+    } catch {
+        fail("could not write session: \(error)")
     }
 }
 
@@ -201,10 +207,10 @@ func defaultBinPath() -> String {
 func cmdInstall(_ flags: Flags) {
     let bin = flags.values["bin"] ?? defaultBinPath()
     installClaudeHooks(bin: bin)
-    installCodexNotify(bin: bin)
+    installCodexHooks(bin: bin)
     print("agent-signaller: install complete (bin: \(bin))")
     print("  • Claude hooks  → ~/.claude/settings.json")
-    print("  • Codex notify  → ~/.codex/config.toml")
+    print("  • Codex hooks   → ~/.codex/hooks.json  (requires Codex >= v0.117)")
 }
 
 func backup(_ url: URL) {
@@ -260,23 +266,44 @@ func installClaudeHooks(bin: String) {
     }
 }
 
-func installCodexNotify(bin: String) {
+func installCodexHooks(bin: String) {
     let home = FileManager.default.homeDirectoryForCurrentUser
     let dir = home.appendingPathComponent(".codex", isDirectory: true)
-    let url = dir.appendingPathComponent("config.toml")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-    let notifyLine = "notify = [\"\(bin)\", \"report\", \"--source\", \"codex\"]"
-
-    var existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-    // Strip any prior top-level notify line we (or the user) set.
-    let kept = existing.split(separator: "\n", omittingEmptySubsequences: false)
-        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("notify") }
-        .joined(separator: "\n")
-    // notify must be top-level (before any [table]); place it first.
-    existing = notifyLine + "\n" + kept
+    // Modern Codex hooks give the full working/waiting/done cycle. Written to
+    // ~/.codex/hooks.json (auto-discovered by Codex).
+    let url = dir.appendingPathComponent("hooks.json")
+    var root: [String: Any] = [:]
+    if let data = try? Data(contentsOf: url),
+       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        root = obj
+    }
+    func entry(_ state: String) -> [String: Any] {
+        ["hooks": [["type": "command", "command": "\(bin) report --source codex --state \(state)"]]]
+    }
+    var hooks = (root["hooks"] as? [String: Any]) ?? [:]
+    hooks["UserPromptSubmit"]  = [entry("working")]
+    hooks["PermissionRequest"] = [entry("waiting")]
+    hooks["Stop"]              = [entry("done")]
+    root["hooks"] = hooks
     backup(url)
-    try? existing.write(to: url, atomically: true, encoding: .utf8)
+    if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
+        try? data.write(to: url, options: .atomic)
+    } else {
+        fail("could not serialize ~/.codex/hooks.json")
+    }
+
+    // Remove the legacy top-level `notify` line we used to add to config.toml.
+    let cfg = dir.appendingPathComponent("config.toml")
+    if let existing = try? String(contentsOf: cfg, encoding: .utf8),
+       existing.contains("agent-signaller") {
+        let kept = existing.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !($0.trimmingCharacters(in: .whitespaces).hasPrefix("notify") && $0.contains("agent-signaller")) }
+            .joined(separator: "\n")
+        backup(cfg)
+        try? kept.write(to: cfg, atomically: true, encoding: .utf8)
+    }
 }
 
 // MARK: - main

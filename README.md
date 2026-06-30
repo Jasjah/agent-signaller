@@ -94,7 +94,7 @@ enable **Launch at Login**, or quit.
 | Tool | File | Hooks |
 |------|------|-------|
 | Claude Code | `~/.claude/settings.json` | `UserPromptSubmit`→working, `PermissionRequest`→waiting, `Stop`→done, `SessionEnd`→clear |
-| Codex | `~/.codex/config.toml` | `notify` → marks the session done on turn-complete |
+| Codex | `~/.codex/hooks.json` | `UserPromptSubmit`→working, `PermissionRequest`→waiting, `Stop`→done *(requires Codex ≥ v0.117)* |
 
 Both files are backed up to `*.agent-signaller.bak` before editing.
 
@@ -152,9 +152,10 @@ and renders a dot per session. Stale sessions (>30 min) are pruned automatically
 
 - **Full-screen apps:** a floating window can't draw over *another app's* native
   full-screen Space (a macOS restriction). The badge shows on all normal Spaces.
-- **Codex "working" (red):** Codex only emits an event when a turn *completes*,
-  not when it starts — so Codex reliably drives the **green "done"** signal, while
-  Claude Code drives the full red/yellow/green cycle.
+- **Codex needs hooks (≥ v0.117):** the full red/yellow/green cycle relies on
+  Codex's hooks system. On older Codex (which only had the `notify` program,
+  fired on turn-complete) you'd get just the green "done" signal — upgrade Codex
+  for working/waiting too.
 - **Interrupts stay red:** Claude Code fires no hook when you interrupt (Esc), so
   a session stays **red** until you send another prompt or it finishes normally
   (cleared by the 30-min safety GC otherwise). This is deliberate — a timer
