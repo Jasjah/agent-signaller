@@ -59,15 +59,17 @@ final class FrameOverlay {
 
     private func build() {
         for screen in NSScreen.screens {
-            let vf = screen.visibleFrame
-            let w = NSWindow(contentRect: vf, styleMask: .borderless, backing: .buffered, defer: false)
+            // Full display frame (not visibleFrame) so the border hugs the true
+            // screen edges; at .statusBar level it draws above the Dock/menu bar.
+            let f = screen.frame
+            let w = NSWindow(contentRect: f, styleMask: .borderless, backing: .buffered, defer: false)
             w.isOpaque = false
             w.backgroundColor = .clear
             w.hasShadow = false
             w.ignoresMouseEvents = true          // click-through
             w.level = .statusBar
             w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-            let v = BorderView(frame: NSRect(origin: .zero, size: vf.size))
+            let v = BorderView(frame: NSRect(origin: .zero, size: f.size))
             v.inset = inset
             v.stroke = lineWidth
             w.contentView = v
