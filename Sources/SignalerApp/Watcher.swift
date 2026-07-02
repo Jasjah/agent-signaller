@@ -61,7 +61,8 @@ final class Watcher {
     }
 
     private func signature(_ list: [(id: String, session: Session)]) -> String {
-        list.map { "\($0.id):\($0.session.state.rawValue)" }.joined(separator: "|")
+        let sessions = list.map { "\($0.id):\($0.session.state.rawValue)" }.joined(separator: "|")
+        return sessions + "|style:" + store.readStyle().rawValue  // re-render on style change too
     }
 
     private func poll() {

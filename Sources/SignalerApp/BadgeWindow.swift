@@ -59,9 +59,11 @@ private enum Layout {
 /// A horizontal row of dots — one per live session — that reflects each
 /// session's state and lets the user click a dot to focus its terminal tab.
 final class BadgeView: NSView {
-    private var dotLayers: [CALayer] = []
+    private var itemLayers: [CALayer] = []
     private(set) var sessions: [(id: String, session: Session)] = []
     private var prevStates: [String: AgentState] = [:]
+    private var style: BadgeStyle = .dots
+    private var renderedStyle: BadgeStyle = .dots
     weak var controller: BadgeController?
 
     private var mouseDownPoint: NSPoint = .zero
@@ -77,70 +79,115 @@ final class BadgeView: NSView {
 
     // MARK: - Rendering
 
-    private func color(for state: AgentState?) -> (NSColor, Bool) {
-        switch state {
-        case .working: return (.systemRed, true)
-        case .waiting: return (.systemYellow, true)
-        case .done:    return (.systemGreen, true)
-        case nil:      return (NSColor.systemGreen.withAlphaComponent(0.25), false) // idle placeholder
-        }
-    }
-
-    func update(sessions: [(id: String, session: Session)]) {
+    /// Render the badge. Dots/miners → a row of per-session items; frame → a
+    /// single control dot tinted with the aggregate color (the real signal is
+    /// the screen border drawn by FrameOverlay).
+    func render(sessions: [(id: String, session: Session)], style: BadgeStyle, aggregate: AgentState?) {
         self.sessions = sessions
-        let count = max(sessions.count, 1)
+        self.style = style
+        let count = (style == .frame) ? 1 : max(sessions.count, 1)
 
-        // Rebuild dot layers if the count changed.
-        if dotLayers.count != count {
-            dotLayers.forEach { $0.removeFromSuperlayer() }
-            dotLayers = (0..<count).map { _ in
+        if itemLayers.count != count || renderedStyle != style {
+            itemLayers.forEach { $0.removeFromSuperlayer() }
+            itemLayers = (0..<count).map { _ in
                 let l = CALayer()
-                l.cornerRadius = Layout.dot / 2
+                l.contentsScale = 2
                 l.shadowOffset = .zero
                 l.shadowRadius = 5
                 layer?.addSublayer(l)
                 return l
             }
+            renderedStyle = style
         }
 
+        let d = Layout.dot
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.3)
-        for (i, l) in dotLayers.enumerated() {
-            l.frame = Layout.dotRect(i)
-            l.cornerRadius = Layout.dot / 2   // keep round while resizing
-            let state: AgentState? = sessions.isEmpty ? nil : sessions[i].session.state
-            let (c, glow) = color(for: state)
-            l.backgroundColor = c.cgColor
-            l.shadowColor = c.cgColor
-            l.shadowOpacity = glow ? 0.9 : 0.0
+        for (i, l) in itemLayers.enumerated() {
+            let rect = Layout.dotRect(i)
+            l.bounds = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
+            l.position = CGPoint(x: rect.midX, y: rect.midY)
+
+            let state: AgentState? = (style == .frame)
+                ? aggregate
+                : (sessions.isEmpty ? nil : sessions[i].session.state)
+            let (color, active) = agentColor(state)
+
+            switch style {
+            case .dots, .frame:
+                l.contents = nil
+                l.cornerRadius = d / 2
+                l.backgroundColor = color.cgColor
+                l.shadowColor = color.cgColor
+                l.shadowOpacity = active ? 0.9 : 0.0
+                l.removeAnimation(forKey: "swing")
+            case .miners:
+                l.cornerRadius = 0
+                l.backgroundColor = NSColor.clear.cgColor
+                l.shadowOpacity = 0
+                l.contents = Self.minerImage(color: color, size: d)
+                l.contentsGravity = .resizeAspect
+                if state == .working { addSwing(l) } else { l.removeAnimation(forKey: "swing") }
+            }
         }
         CATransaction.commit()
 
-        // Pulse + chime when a session transitions into "done".
+        // Chime + pulse when a session transitions into done (any style).
         var anyFinished = false
         for entry in sessions {
             let prev = prevStates[entry.id]
-            if prev != nil && prev != .done && entry.session.state == .done,
-               let idx = sessions.firstIndex(where: { $0.id == entry.id }) {
-                pulse(dotLayers[idx])
+            if prev != nil && prev != .done && entry.session.state == .done {
                 anyFinished = true
+                if style != .frame,
+                   let idx = sessions.firstIndex(where: { $0.id == entry.id }), idx < itemLayers.count {
+                    pulse(itemLayers[idx])
+                }
             }
         }
         prevStates = Dictionary(sessions.map { ($0.id, $0.session.state) }, uniquingKeysWith: { a, _ in a })
         if anyFinished { controller?.sessionDidFinish() }
     }
 
-    private func pulse(_ dot: CALayer) {
+    private func addSwing(_ l: CALayer) {
+        guard l.animation(forKey: "swing") == nil else { return }
+        let a = CABasicAnimation(keyPath: "transform.rotation.z")
+        a.fromValue = -0.28
+        a.toValue = 0.28
+        a.duration = 0.4
+        a.autoreverses = true
+        a.repeatCount = .infinity
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        l.add(a, forKey: "swing")
+    }
+
+    private func pulse(_ item: CALayer) {
         let anim = CAKeyframeAnimation(keyPath: "transform.scale")
         anim.values = [1.0, 1.6, 1.0]
         anim.keyTimes = [0, 0.4, 1]
         anim.duration = 0.5
-        dot.add(anim, forKey: "pulse")
+        item.add(anim, forKey: "pulse")
+    }
+
+    /// A hammer symbol filled with `color`, rendered to a size×size image (@2x).
+    private static func minerImage(color: NSColor, size: CGFloat) -> CGImage? {
+        let px = max(1, size * 2)
+        let cfg = NSImage.SymbolConfiguration(pointSize: px * 0.9, weight: .semibold)
+        guard let base = NSImage(systemSymbolName: "hammer.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg) else { return nil }
+        let out = NSImage(size: NSSize(width: px, height: px), flipped: false) { _ in
+            let s = base.size
+            base.draw(in: NSRect(x: (px - s.width) / 2, y: (px - s.height) / 2, width: s.width, height: s.height))
+            color.set()
+            NSRect(x: 0, y: 0, width: px, height: px).fill(using: .sourceAtop)
+            return true
+        }
+        return out.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     // MARK: - Hit testing
 
     func hitDot(_ pointInView: NSPoint) -> Int? {
+        guard style != .frame else { return nil }   // control dot isn't a session
         for i in sessions.indices where Layout.dotRect(i).contains(pointInView) { return i }
         return nil
     }
@@ -243,6 +290,8 @@ final class BadgeController: NSObject {
     private var badge: BadgeView!
     private var watcher: Watcher!
     private let defaults = UserDefaults.standard
+    private let store = SessionStore()
+    private lazy var frameOverlay = FrameOverlay()
     // Completion chime; "Glass" is the classic macOS "done" sound.
     private let doneSound = NSSound(named: NSSound.Name("Glass"))
 
@@ -308,14 +357,25 @@ final class BadgeController: NSObject {
 
     private func render(_ list: [(id: String, session: Session)]) {
         lastList = list
-        resizeAndPosition(count: max(list.count, 1))
-        badge.update(sessions: list)
+        let style = store.readStyle()
+        let aggregate = store.aggregate(now: Date().timeIntervalSince1970)
+
+        if style == .frame {
+            frameOverlay.show()
+            frameOverlay.update(state: aggregate)
+        } else {
+            frameOverlay.hide()
+        }
+
+        let count = (style == .frame) ? 1 : max(list.count, 1)
+        resizeAndPosition(count: count)
+        badge.render(sessions: list, style: style, aggregate: aggregate)
     }
 
     private var lastList: [(id: String, session: Session)] = []
 
-    /// Re-lay-out the badge at the current dot size (called while dragging the
-    /// resize grip) without waiting for the next poll.
+    /// Re-render at the current dot size / style (resize grip, style change)
+    /// without waiting for the next poll.
     func refreshLayout() { render(lastList) }
 
     // MARK: - Clicks
@@ -388,6 +448,19 @@ final class BadgeController: NSObject {
         cornerItem.submenu = cornerSub
         menu.addItem(cornerItem)
 
+        let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
+        let styleSub = NSMenu()
+        let current = store.readStyle()
+        for s in BadgeStyle.allCases {
+            let it = NSMenuItem(title: s.title, action: #selector(selectStyle(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = s.rawValue
+            it.state = (s == current) ? .on : .off
+            styleSub.addItem(it)
+        }
+        styleItem.submenu = styleSub
+        menu.addItem(styleItem)
+
         let resetSize = NSMenuItem(title: "Reset dot size", action: #selector(resetDotSize), keyEquivalent: "")
         resetSize.target = self
         menu.addItem(resetSize)
@@ -408,6 +481,12 @@ final class BadgeController: NSObject {
         menu.addItem(quit)
 
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    @objc private func selectStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let s = BadgeStyle(rawValue: raw) else { return }
+        store.writeStyle(s)
+        refreshLayout()
     }
 
     @objc private func resetDotSize() {

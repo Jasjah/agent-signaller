@@ -310,7 +310,7 @@ func installCodexHooks(bin: String) {
 
 let argv = Array(CommandLine.arguments.dropFirst())
 guard let sub = argv.first else {
-    print("usage: agent-signaller <report|install|gc|status> [flags]")
+    print("usage: agent-signaller <report|install|gc|status|style> [flags]")
     exit(0)
 }
 let flags = Flags(Array(argv.dropFirst()))
@@ -329,6 +329,16 @@ case "status":
     for (id, s) in store.all().sorted(by: { $0.id < $1.id }) {
         let term = [s.termProgram, s.tty].compactMap { $0 }.joined(separator: " ")
         print("  \(id)  \(s.tool.rawValue)  \(s.state.rawValue)  \(s.cwd)  [\(term)]")
+    }
+case "style":
+    if let arg = flags.positionals.first {
+        guard let s = BadgeStyle(rawValue: arg) else {
+            fail("unknown style '\(arg)' (expected dots, miners, or frame)")
+        }
+        store.writeStyle(s)
+        print("style set to \(s.rawValue)")
+    } else {
+        print(store.readStyle().rawValue)
     }
 case "active":
     // What the badge shows: live (non-stale) sessions.

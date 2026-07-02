@@ -23,6 +23,22 @@ public enum AgentTool: String, Codable {
     case codex
 }
 
+/// Visual style for the badge. User-selectable, persisted to a file so the menu
+/// and the CLI can both set it and the app can observe it cross-process.
+public enum BadgeStyle: String, CaseIterable {
+    case dots     // colored circle per session (default)
+    case miners   // tintable SF Symbol per session, swings while working
+    case frame    // whole-screen border in the aggregate color
+
+    public var title: String {
+        switch self {
+        case .dots:   return "Dots"
+        case .miners: return "Miners"
+        case .frame:  return "Frame"
+        }
+    }
+}
+
 /// One agent session's last reported status. Persisted as a single JSON file.
 public struct Session: Codable {
     public var tool: AgentTool
@@ -73,6 +89,20 @@ public struct SessionStore {
 
     public func ensureDir() throws {
         try FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Style (single file, shared by the app menu and the CLI)
+
+    private var styleURL: URL { root.appendingPathComponent("style") }
+
+    public func readStyle() -> BadgeStyle {
+        guard let raw = try? String(contentsOf: styleURL, encoding: .utf8) else { return .dots }
+        return BadgeStyle(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .dots
+    }
+
+    public func writeStyle(_ style: BadgeStyle) {
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? style.rawValue.write(to: styleURL, atomically: true, encoding: .utf8)
     }
 
     private func fileURL(for id: String) -> URL {

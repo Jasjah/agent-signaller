@@ -116,7 +116,12 @@ Both files are backed up to `*.agent-signaller.bak` before editing.
 - **Resize** → grab the badge's **trailing edge** (the cursor turns into a
   resize arrow) and drag to scale all dots at once (12–40pt, remembered).
   "Reset dot size" in the menu snaps back to default.
-- **Right-click** → snap-to-corner, reset dot size, toggle the completion
+- **Style** → pick how the signal looks (right-click → Style, or the CLI):
+  - **Dots** — a colored circle per session (default).
+  - **Miners** — a little worker per session that **swings while working**.
+  - **Frame** — a colored **border around the whole screen** for the aggregate
+    state, pulsing while working (a tiny corner dot stays for the menu).
+- **Right-click** → style, snap-to-corner, reset dot size, toggle the completion
   sound, Launch at Login, Quit.
 
 <p align="center">
@@ -129,8 +134,10 @@ when you're looking elsewhere. Toggle it any time via **Sound when done**.
 Debug from the terminal:
 
 ```bash
-agent-signaller status   # aggregate state + every live session
-agent-signaller gc       # prune stale sessions
+agent-signaller status              # aggregate state + every live session
+agent-signaller gc                  # prune stale sessions
+agent-signaller style               # print the current style
+agent-signaller style dots|miners|frame   # switch style
 ```
 
 ---
