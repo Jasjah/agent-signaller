@@ -20,7 +20,7 @@ final class FrameOverlay {
     private var lastState: AgentState?
 
     private let inset: CGFloat = 5
-    private let lineWidth: CGFloat = 8
+    private let lineWidth: CGFloat = 4
 
     init() {
         NotificationCenter.default.addObserver(
@@ -118,17 +118,18 @@ private final class BorderView: NSView {
             return
         }
         shape.strokeColor = color.cgColor
+        let steady: Float = 0.75   // lighter than a solid border
         if pulse {
             let a = CABasicAnimation(keyPath: "opacity")
-            a.fromValue = 1.0
-            a.toValue = 0.35
+            a.fromValue = steady
+            a.toValue = 0.25
             a.duration = 0.8
             a.autoreverses = true
             a.repeatCount = .infinity
             a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             shape.add(a, forKey: "pulse")
         } else {
-            shape.opacity = 1.0
+            shape.opacity = steady
         }
     }
 }
