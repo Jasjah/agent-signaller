@@ -150,7 +150,7 @@ Both files are backed up to `*.agent-signaller.bak` before editing.
   sound, Launch at Login, Quit.
 
 <p align="center">
-  <img src="docs/context-menu.png" width="240" alt="Agent Signaller right-click menu: Snap to corner, Sound when done, Launch at Login, Quit">
+  <img src="docs/context-menu-v2.png" width="260" alt="Agent Signaller right-click menu: Snap to corner, Style, Reset dot size, Sound when done, Launch at Login, Quit — with a hover tooltip">
 </p>
 
 A **chime plays when a session turns green** so you get an audible "done" even
