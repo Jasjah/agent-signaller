@@ -54,6 +54,16 @@ private enum Layout {
     static func dotRect(_ i: Int) -> NSRect {
         NSRect(x: padH + CGFloat(i) * (dot + gap), y: padV, width: dot, height: dot)
     }
+
+    // Frame-mode control dot: fixed default (mid) size, independent of the
+    // user's dot-size slider.
+    static let controlPad: CGFloat = 6   // glow margin around the control dot
+    static func controlSize() -> NSSize {
+        NSSize(width: defaultDot + controlPad * 2, height: defaultDot + controlPad * 2)
+    }
+    static func controlRect() -> NSRect {
+        NSRect(x: controlPad, y: controlPad, width: defaultDot, height: defaultDot)
+    }
 }
 
 /// A horizontal row of dots — one per live session — that reflects each
@@ -100,11 +110,11 @@ final class BadgeView: NSView {
             renderedStyle = style
         }
 
-        let d = Layout.dot
+        let d = (style == .frame) ? Layout.defaultDot : Layout.dot
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.3)
         for (i, l) in itemLayers.enumerated() {
-            let rect = Layout.dotRect(i)
+            let rect = (style == .frame) ? Layout.controlRect() : Layout.dotRect(i)
             l.bounds = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
             l.position = CGPoint(x: rect.midX, y: rect.midY)
 
@@ -237,6 +247,8 @@ final class BadgeView: NSView {
         mouseDownPoint = NSEvent.mouseLocation  // screen coords
         didDrag = false
         controller?.hideTooltip()
+        // Frame-mode control dot is fixed (top-right); no move/resize.
+        if style == .frame { dragMode = .none; return }
         let pView = convert(event.locationInWindow, from: nil)
         if inResizeZone(pView) {
             dragMode = .resize
@@ -367,9 +379,27 @@ final class BadgeController: NSObject {
             frameOverlay.hide()
         }
 
-        let count = (style == .frame) ? 1 : max(list.count, 1)
-        resizeAndPosition(count: count)
+        if style == .frame {
+            positionControlDot()
+        } else {
+            resizeAndPosition(count: max(list.count, 1))
+        }
         badge.render(sessions: list, style: style, aggregate: aggregate)
+    }
+
+    /// Frame mode: pin the control dot to the top-right, 24pt inside the frame,
+    /// at the default (mid) size — regardless of the user's corner/size prefs.
+    private func positionControlDot() {
+        guard let screen = NSScreen.main else { return }
+        let f = screen.frame
+        let size = Layout.controlSize()
+        let gapToFrame: CGFloat = 24
+        // Distance from the screen edge to the dot's outer edge:
+        let dotInset = FrameOverlay.inset + FrameOverlay.lineWidth + gapToFrame
+        let winInset = dotInset - Layout.controlPad   // window edge (dot sits controlPad inside)
+        let origin = NSPoint(x: f.maxX - size.width - winInset,
+                             y: f.maxY - size.height - winInset)
+        window.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private var lastList: [(id: String, session: Session)] = []

@@ -19,8 +19,8 @@ final class FrameOverlay {
     private var visible = false
     private var lastState: AgentState?
 
-    private let inset: CGFloat = 5
-    private let lineWidth: CGFloat = 4
+    static let inset: CGFloat = 5
+    static let lineWidth: CGFloat = 4
 
     init() {
         NotificationCenter.default.addObserver(
@@ -70,8 +70,8 @@ final class FrameOverlay {
             w.level = .statusBar
             w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
             let v = BorderView(frame: NSRect(origin: .zero, size: f.size))
-            v.inset = inset
-            v.stroke = lineWidth
+            v.inset = FrameOverlay.inset
+            v.stroke = FrameOverlay.lineWidth
             w.contentView = v
             windows.append(w)
         }
