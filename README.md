@@ -25,6 +25,31 @@ terminal tab.**
 
 ---
 
+## Styles
+
+Pick the look that suits you — right-click the badge → **Style**, or
+`agent-signaller style dots|miners|frame`.
+
+<table>
+<tr>
+<td align="center"><b>Dots</b></td>
+<td align="center"><b>Miners</b></td>
+<td align="center"><b>Frame</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/badge.png" width="240" alt="Dots style"></td>
+<td align="center"><img src="docs/miners.gif" width="240" alt="Miners style"></td>
+<td align="center"><img src="docs/frame.png" width="240" alt="Frame style"></td>
+</tr>
+<tr>
+<td align="center">a colored circle per session</td>
+<td align="center">a worker per session that <b>swings while working</b></td>
+<td align="center">a screen-edge border for the aggregate state, pulsing while working</td>
+</tr>
+</table>
+
+---
+
 ## Why
 
 Running several agents across several terminals means constantly tabbing around
